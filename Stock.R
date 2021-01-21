@@ -506,3 +506,403 @@ rsi = RSI(Cl(charting_data), n=14)
 View(rsi)
 ```
 hicham 
+-----------------------------------------------------------------------------------------------------------------------------------------
+---
+title: "Stocks Data science project"
+output: html_notebook
+---
+
+```{r}
+setwd("~/ensa/FID2/DATA SCIENCE/project")
+library(xml2)
+library(rvest)
+library(xml2)
+library(XML)
+library(rvest)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyquant)
+library(TTR)
+setwd("~/ensa/FID2/DATA SCIENCE/project")
+```
+
+
+```{r}
+## Import Tickers
+sp500_url <- "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+```
+
+
+```{r}
+sp500 <- read_html(sp500_url) %>% 
+  html_node("table") %>% 
+  html_table()
+
+sp500<-sp500 %>% select('Symbol','Security','SEC filings','GICS Sector', 'Headquarters Location')
+names(sp500) <- c("Ticker", "Name", "Sector", "Industry", "HQ_Location")
+
+save(sp500, file = "sp500.RData")
+```
+
+```{r}
+sp500
+```
+
+```{r}
+# importation of price Data sp&500
+#options("getSymbols.warning4.0"=FALSE)
+# options("getSymbols.yahoo.warning"=FALSE)
+# tickers<-c("^GSPC","AAPL")
+# getSymbols(tickers, from = '2000-01-01',
+#            to = "2020-12-30",warnings = FALSE,
+#            auto.assign = TRUE)
+# sp500_price<-GSPC
+# stock_price<-AAPL
+# str(sp500_price)
+# sp500_price %>% 
+#   select(Date,Adj.Close,Volume,Close,Open) %>% 
+#   
+# sp500_price <-sp500_price %>% mutate(
+#   Movement = ifelse(Close > Open, "Up", "Down")
+# )
+# sp500_price
+# View(sp500_price)
+```
+
+```{r}
+#head(sp500_price)
+
+```
+
+
+```{r}
+#stock_join<-inner_join(returns,sp500_price,by = c("Date" = "Date"), suffix = c("_stock", "_sp500_price"))
+#View(stock_join)
+```
+
+
+```{r}
+
+## Import Price Data
+returns <- as.data.frame(matrix(NA, ncol = 8, nrow = 0))
+names(returns) <- c("Date", "Open", "High", "Low", "Close", "Adj_Close", "Volume", "Ticker")
+
+for(symbol in sp500$Ticker){
+  print(symbol)
+  url <- paste0("https://query1.finance.yahoo.com/v7/finance/download/", symbol, "?period1=1280102400&period2=1595721600&interval=1d&events=history")
+  print(url)
+  ret <- try(read_csv(url))
+  
+  if(mode(ret) != "character"){
+    ret$Ticker <- symbol
+    returns <- rbind(returns, ret)
+  }
+  
+}
+names(returns) <- c("Date", "Open", "High", "Low", "Close", "Adj_Close", "Volume", "Ticker")
+returns<- returns %>%  select("Date","Ticker", "Open", "High", "Low", "Close", "Adj_Close", "Volume")
+returns <- returns %>% mutate(
+  Open = as.numeric(Open),
+  High = as.numeric(High),
+  Low = as.numeric(Low),
+  Close = as.numeric(Close),
+  Adj_Close= as.numeric(Adj_Close),
+  Volume=as.numeric(Volume),
+)
+
+returns <- returns %>% mutate(
+  Movement = ifelse(Close > Open, "Up", "Down")
+  
+)
+save(returns, file = "returns.RData")
+
+returns_long <- as.data.frame(matrix(NA, ncol = 8, nrow = 0))
+returns_long <-returns %>% left_join(sp500 %>% select("Ticker", "Name", "Sector", "Industry"), by = c("Ticker" = "Ticker"))
+save(returns, file = "returns_long.RData")
+
+```
+
+```{r}
+## Performance calcs
+
+performance_summary <- as.data.frame(matrix(NA, ncol = 7, nrow = 0))
+names(performance_summary) <- c("Ticker", "Thirty_days", "Ninety_days", "One_year", "Three_years", "Five_years", "Ten_years")
+
+i <- 1
+for(ticker in unique(returns_long$Ticker)){
+  print(ticker)
+  
+  returns_long_by_ticker <- returns_long %>% filter(Ticker == ticker ) %>% arrange(desc(Date))
+  
+  thrity_day <- (returns_long_by_ticker$Adj_Close[1] - returns_long_by_ticker$Adj_Close[21])/returns_long_by_ticker$Adj_Close[21]
+  ninety_day <- (returns_long_by_ticker$Adj_Close[1] - returns_long_by_ticker$Adj_Close[63])/returns_long_by_ticker$Adj_Close[63]
+  one_year <- (returns_long_by_ticker$Adj_Close[1] - returns_long_by_ticker$Adj_Close[253])/returns_long_by_ticker$Adj_Close[253]
+  three_year <- (1 + ((returns_long_by_ticker$Adj_Close[1] - returns_long_by_ticker$Adj_Close[759])/returns_long_by_ticker$Adj_Close[759]))^(1/3)-1
+  five_year <- (1 + ((returns_long_by_ticker$Adj_Close[1] - returns_long_by_ticker$Adj_Close[1265])/returns_long_by_ticker$Adj_Close[1265]))^(1/5)-1
+  ten_year <- (1 + ((returns_long_by_ticker$Adj_Close[1] - returns_long_by_ticker$Adj_Close[2518])/returns_long_by_ticker$Adj_Close[2518]))^(1/10)-1
+  
+  performance_summary[i, 1] <- ticker
+  performance_summary[i, 2] <- thrity_day
+  performance_summary[i, 3] <- ninety_day
+  performance_summary[i, 4] <- one_year
+  performance_summary[i, 5] <- three_year
+  performance_summary[i, 6] <- five_year
+  performance_summary[i, 7] <- ten_year
+  
+  i <- i + 1
+}
+
+load("sp500.RData")
+
+performance_summary <- performance_summary %>% left_join(sp500, by = c("Ticker" = "Ticker"))
+save(performance_summary, file = "performance_summary.RData")
+
+
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(xts)
+```
+
+```{r}
+
+ticker <- "AAPL"
+```
+
+```{r}
+returns
+
+charting_data <- returns_long %>% filter(Ticker == ticker,Date >= "2020-01-01")
+ggplot(data=charting_data) +
+  geom_line(aes(x = (Date), y=Adj_Close ))
+
+```
+
+
+```{r}
+returns
+#install.packages("plotly")
+library(plotly)
+```
+
+```{r}
+# # Candlestick patherb of the stock 
+charting_data <- returns_long %>% filter(Ticker == ticker,Date >= 	"2020-01-01")
+#charting_data<-data.frame(Date=index(charting_data),coredata(charting_data))
+candle_chart<-charting_data %>% plot_ly(
+  type="candlestick",
+  x=~Date,
+  open=~Open,
+  close=~Adj_Close,
+  high=~High,
+  low=~Low
+) 
+candle_chart<-candle_chart %>% layout(title = paste0(charting_data$Name[1], " (", ticker, ")"))
+candle_chart
+```
+```{r}
+(ticker_data<-returns_long %>% filter(Ticker == ticker)%>%
+     rename(Adjusted = Adj_Close))
+```
+
+
+
+```{r}
+#Data Frame to time series OHLC ready for visualisation
+library(tidyverse)
+ticker_dataSelection<-ticker_data %>% select("Date","Open", "High", "Low", "Close", "Adjusted","Volume")
+ticker_data_series <- xts(ticker_dataSelection[, -1], order.by=as.Date(ticker_dataSelection$Date))
+str(ticker_data_series)
+```
+
+```{r}
+chartSeries(ticker_data_series,
+            subset='2020',
+            theme=chartTheme('white'),
+            name = ticker)
+addSMA(n=24,on=1,col = "blue")
+addSMA(n=48,on=1,col = "red")
+addBBands(n=20,sd=2)
+addMomentum(n=1)
+```
+```{r}
+#don' run 
+hlac <- as.xts(data.frame(x=Hi(ticker_data_series), y=Lo(ticker_data_series), z=Ad(ticker_data_series)))
+```
+
+
+```{r}
+#The response features
+ticker_data<-data.frame(ticker_data_series)
+ticker_data_test<-ticker_data %>% mutate(difference = Adjusted- lag(Adjusted, default=NaN),
+                       response= ifelse(difference>=0,"UP","DOWN"))
+```
+
+```{r}
+library(rpart)
+library(vip)
+library("rpart.plot")
+```
+
+```{r}
+rsi <- RSI(Ad(ticker_data_series), n=14)
+SMA<-SMA(Ad(ticker_data_series),n=20)
+hlac <- as.xts(data.frame(x=Hi(ticker_data_series), y=Lo(ticker_data_series), z=Ad(ticker_data_series)))
+sto <- stoch(hlac, nFastK = 14) *100
+wpr <-WPR(hlac, n=14) * (-100)
+macd <- MACD(Ad(ticker_data_series), nFast=12, nSlow=26, nSig=9)  
+roc <- ROC(Ad(ticker_data_series), n=14) *100
+obv <- OBV(Ad(ticker_data_series), Vo(ticker_data_series))
+ticker_data_test<-ticker_data %>% mutate(difference = Adjusted- lag(Adjusted, default=NaN),
+                       response= ifelse(difference>=0,"UP","DOWN"))
+  indic <- data.frame(rsi, SMA, sto, wpr, macd, roc, obv,as.factor(ticker_data_test$response))
+  colnames(indic) <- c("RSI","SMA", "StoFASTK","StoFASTD","StoSLOWD", 
+                          "WilliamPR", "MACD","MACDSignal", "PriceRateOfChange", 
+                          "OnBalanceVolume","response"
+                          )
+  indic<-indic[-1:-35,]
+```
+
+```{r}
+#splitting data
+library(rpart)
+library(vip)
+set.seed(28676)
+
+# The set. seed() function sets the starting number used to generate a sequence of random numbers ??? it ensures that you get the same result if you start with that same seed each time you run the same process. For example, if I use the sample() function immediately after setting a seed, I will always get the same sample.
+
+indicators_split <- initial_split(indic, prop=.8, strata='response')
+indicators_train <- training(indicators_split)
+indicators_test <- testing(indicators_split)
+```
+
+```{r}
+#model Random Forest
+model_Random_Forest <- rand_forest(mode='classification') %>% 
+                      set_engine('ranger') %>%
+                      fit(response ~ ., data = indicators_train )
+```
+
+```{r}
+model_Random_Forest
+```
+```{r}
+## Boosted tree (avec parnsnip et XGBOOST ) Creation du model 
+ ?boost_tree
+  ?xgboost::xgboost
+  set.seed(1234)
+  model_boost_tree <- boost_tree(
+                        mode = "classification") %>%
+                        set_engine("xgboost") %>%
+                        fit(response ~ ., data = indicators_train )
+```
+
+```{r}
+#classe 
+model_Random_Forest %>%
+    predict(new_data = indicators_test %>% filter(complete.cases(.)) ) %>%
+    bind_cols(indicators_test %>% filter(complete.cases(.))  %>% select(response)) %>%
+    yardstick::accuracy(truth = response, estimate = .pred_class)
+
+#probs
+  model_Random_forest_pred_probs <- model_boost_tree %>%
+    predict(new_data = indicators_test,type = "prob") %>% 
+    bind_cols( indicators_test %>% select(response) ) 
+  glimpse(model_Random_forest_pred_probs)
+  yardstick::roc_auc(model_Random_forest_pred_probs,truth = response , .pred_DOWN)
+```
+```{r}
+xgboost::xgb.importance(model = model_boost_tree$fit) %>%
+    as_tibble() %>% arrange(desc(Gain))
+```
+```{r}
+vip(model_boost_tree$fit)
+```
+## Evaluation de xgboost sur le testing set 
+```{r}
+#classe 
+model_boost_tree %>%
+    predict(new_data = indicators_test) %>%
+    bind_cols(indicators_test %>% select(response)) %>%
+    yardstick::accuracy(truth = response, estimate = .pred_class)
+
+#probs
+  model_boost_tree_pred_probs <- model_boost_tree %>%
+    predict(new_data = indicators_test,type = "prob") %>% 
+    bind_cols( indicators_test %>% select(response) ) 
+  glimpse(model_boost_tree_pred_probs)
+  yardstick::roc_auc(model_boost_tree_pred_probs,truth = response, .pred_DOWN)
+  
+```
+
+function --------------------------------------------------------------------------------------------------------------------------
+
+```{r}
+get_indicators <- function(stock, period){
+  #creating response variable. Predicting next days price, by using lag function in price_change
+  #price_change <- Ad(lag(stock,-period)) - Ad(stock)
+  #response <- ifelse(price_change > 0, "UP", "DOWN")
+  #Calculating RSI
+  rsi <- RSI(Ad(stock), n=14)
+  #calculing SMA
+  SMA<-SMA(Ad(stock),n=20)
+  #High, Low, and adjusted close xts object
+  hlac <- as.xts(data.frame(x=Hi(stock), y=Lo(stock), z=Ad(stock)))
+  
+  #Stochastic Oscillator
+  sto <- stoch(hlac, nFastK = 14) *100
+  #Williams %R
+  wpr <-WPR(hlac, n=14) * (-100)
+  
+  #MACD
+  macd <- MACD(Ad(stock), nFast=12, nSlow=26, nSig=9)  
+  #Price Rate of Change
+  roc <- ROC(Ad(stock), n=14) *100
+  #On Balance Volume
+  obv <- OBV(Ad(stock), Vo(stock))
+  
+  #create data set with all indicators and labeled columns 
+  indicators <- data.frame(rsi, sto, wpr, macd, roc, obv)
+  colnames(indicators) <- c("RSI", "StoFASTK","StoFASTD","StoSLOWD", 
+                          "WilliamPR", "MACD","MACDSignal", "PriceRateOfChange", 
+                          "OnBalanceVolume"
+                          )
+  #removing na values from calculations and keeping sizes of columns same
+  indicators <- indicators[-1:-35,]
+  
+  #removing na values due to lag
+  indicators <- head(indicators,-period)
+  return(indicators)
+}
+```
+--------------------------------------------------------------------------------------------------------------------------------------------
+Statistique:
+
+```{r}
+charting_data <- returns_long %>% filter(Ticker == ticker,Date >= 	"2020-01-01")
+Candelstick<-ggplot(data=charting_data) +
+  geom_boxplot(aes(x = (Date), y=Adj_Close  ,fill=Movement))+
+  scale_fill_manual(values = c(Up = "#0066ff", Down = "#ffff00")) +
+  xlab("Date") + 
+  ylab("Stock Price") +
+  labs(
+    title = paste0(charting_data$Name[1], " (", ticker, ")"),
+    subtitle = charting_data$Sector[1],
+    caption = "Source: Yahoo! Finance"
+  ) +
+  scale_y_continuous(labels = scales::dollar)
+Candelstick
+
+```
+
+```{r}
+charting_data <- returns_long %>% filter(Ticker == ticker,Date >= 	"2013-06-24")
+ggplot(charting_data,aes(Date,Adj_Close,fill =Movement)) +
+  geom_boxplot()
+```
+
